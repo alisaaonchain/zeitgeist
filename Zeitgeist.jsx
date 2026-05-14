@@ -214,15 +214,20 @@ class WebSocketManager {
     this.reconnectAttempts = 0;
     this.reconnectTimer = null;
     this.heartbeatTimer = null;
+    this.useProtocol = true;
+    this.protocolFallbackAttempted = false;
   }
 
   connect() {
     this.manualClose = false;
     this.cleanupSocket();
     this.onStatus('connecting');
+    let opened = false;
     try {
-      this.ws = new WebSocket(this.getUrl(), 'echo-protocol');
+      const url = this.getUrl();
+      this.ws = this.useProtocol ? new WebSocket(url, 'echo-protocol') : new WebSocket(url);
       this.ws.onopen = () => {
+        opened = true;
         this.connected = true;
         this.reconnectAttempts = 0;
         this.onStatus('live');
@@ -240,10 +245,22 @@ class WebSocketManager {
       this.ws.onclose = () => {
         this.connected = false;
         this.stopHeartbeat();
+        if (!opened && this.useProtocol && !this.protocolFallbackAttempted) {
+          this.useProtocol = false;
+          this.protocolFallbackAttempted = true;
+          this.reconnectAttempts = 0;
+          this.scheduleReconnect(0);
+          return;
+        }
         if (!this.manualClose) this.scheduleReconnect();
         else this.onStatus('disconnected');
       };
     } catch {
+      if (this.useProtocol && !this.protocolFallbackAttempted) {
+        this.useProtocol = false;
+        this.protocolFallbackAttempted = true;
+        this.reconnectAttempts = 0;
+      }
       this.scheduleReconnect();
     }
   }
@@ -274,9 +291,9 @@ class WebSocketManager {
     else this.queue.push(message);
   }
 
-  scheduleReconnect() {
+  scheduleReconnect(delayOverride) {
     this.onStatus('connecting');
-    const delay = Math.min(30000, 1000 * (2 ** this.reconnectAttempts));
+    const delay = delayOverride ?? Math.min(30000, 1000 * (2 ** this.reconnectAttempts));
     this.reconnectAttempts += 1;
     clearTimeout(this.reconnectTimer);
     this.reconnectTimer = setTimeout(() => this.connect(), delay);
@@ -471,6 +488,7 @@ function Zeitgeist() {
   const tokenCacheRef = useRef(new Map());
   const narrativesRef = useRef(narratives);
   const enrichmentQueueRef = useRef([]);
+  const enrichmentFlushTimerRef = useRef(null);
   const recomputeTimerRef = useRef(null);
   const bubbleContainerRef = useRef(null);
   const apiInputRef = useRef(null);
@@ -565,7 +583,13 @@ function Zeitgeist() {
       const token = { address: data.address, symbol: data.symbol || 'NEW', name: data.name || data.symbol || 'New Token', discoveredAt: Date.now(), createdAt: data.createdAt };
       enrichmentQueueRef.current.push(token);
       addEvent({ type: 'NEW_TOKEN', narrativeId: classifyToken(token), title: 'NEW TOKEN', main: `🌱 ${token.symbol} launched`, sub: shortAddress(token.address) });
-      if (enrichmentQueueRef.current.length >= 10) enrichQueuedTokens();
+      if (enrichmentQueueRef.current.length >= 10) {
+        clearTimeout(enrichmentFlushTimerRef.current);
+        enrichQueuedTokens(false);
+      } else {
+        clearTimeout(enrichmentFlushTimerRef.current);
+        enrichmentFlushTimerRef.current = setTimeout(() => enrichQueuedTokens(true), 2500);
+      }
     }
     if (type === 'LARGE_TRADE_TXS_DATA') {
       const tokenAddress = data.tokenAddress || data.address;
@@ -591,8 +615,9 @@ function Zeitgeist() {
     if (type === 'NEW_PAIR_DATA') addEvent({ type: 'NEW_PAIR', narrativeId: 'MEME', title: 'LIQUIDITY', main: `◎ New Solana pair confirmed`, sub: `${formatVolume(data.liquidity || 0)} liquidity · ${shortAddress(data.baseAddress || data.address)}` });
   }, [addEvent, scheduleRecompute]);
 
-  const enrichQueuedTokens = useCallback(async () => {
-    const batch = enrichmentQueueRef.current.splice(0, 10);
+  async function enrichQueuedTokens(flushAll = false) {
+    const batchSize = flushAll ? enrichmentQueueRef.current.length : 10;
+    const batch = enrichmentQueueRef.current.splice(0, batchSize);
     if (!batch.length || !apiKey) return;
     const list = batch.map((t) => t.address).join(',');
     const meta = await apiFetch(`/defi/v3/token/meta-data/multiple?list_address=${list}`);
@@ -602,7 +627,7 @@ function Zeitgeist() {
       const nextToken = { ...token, ...m, isNew: true, volume24h: m.volume24h || 0, holderCount: m.holderCount || 0, buyVolume: 0, sellVolume: 0, buyPressure: 0.5, securityRisk: 'LOW', sparkline: [] };
       upsertToken(classifyToken(nextToken), nextToken);
     });
-  }, [apiFetch, apiKey]);
+  }
 
   function upsertToken(narrativeId, token) {
     tokenCacheRef.current.set(token.address, token);
