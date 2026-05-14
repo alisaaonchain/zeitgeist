@@ -27,6 +27,40 @@ import BubbleMap from './components/BubbleMap';
 import NarrativeTable from './components/NarrativeTable';
 import DetailView from './components/DetailView';
 import EventFeed from './components/EventFeed';
+import RotationView from './components/RotationView';
+import DataHealth from './components/DataHealth';
+import AlertsPanel from './components/AlertsPanel';
+
+const REST_HEALTH_KEYS = ['tokenlist', 'metadata', 'trade-data', 'security', 'gainers-losers', 'meme-list', 'wallet-pnl', 'price-history'];
+const WS_HEALTH_KEYS = ['new-listing', 'large-trades', 'token-stats', 'meme', 'new-pair'];
+
+function createInitialHealth() {
+  return {
+    rest: Object.fromEntries(REST_HEALTH_KEYS.map((key) => [key, { status: 'pending', updatedAt: null, count: 0 }])),
+    ws: Object.fromEntries(WS_HEALTH_KEYS.map((key) => [key, { status: 'pending', updatedAt: null, count: 0 }])),
+  };
+}
+
+function restKeyForPath(path) {
+  if (path.includes('/defi/tokenlist')) return 'tokenlist';
+  if (path.includes('/meta-data/multiple')) return 'metadata';
+  if (path.includes('/trade-data/single')) return 'trade-data';
+  if (path.includes('/token_security')) return 'security';
+  if (path.includes('/gainers-losers')) return 'gainers-losers';
+  if (path.includes('/token/meme/list')) return 'meme-list';
+  if (path.includes('/pnl/summary')) return 'wallet-pnl';
+  if (path.includes('/history_price')) return 'price-history';
+  return 'tokenlist';
+}
+
+function wsKeyForType(type) {
+  if (type === 'TOKEN_NEW_LISTING_DATA') return 'new-listing';
+  if (type === 'LARGE_TRADE_TXS_DATA') return 'large-trades';
+  if (type === 'TOKEN_STATS_DATA') return 'token-stats';
+  if (type === 'MEME_DATA') return 'meme';
+  if (type === 'NEW_PAIR_DATA') return 'new-pair';
+  return null;
+}
 
 export default function App() {
   const [apiKey, setApiKey] = useState('');
@@ -49,6 +83,13 @@ export default function App() {
   const [copied, setCopied] = useState(null);
   const [lastRefresh, setLastRefresh] = useState(Date.now());
   const [stageFlash, setStageFlash] = useState(null);
+  const [dataHealth, setDataHealth] = useState(() => createInitialHealth());
+  const [alertRules, setAlertRules] = useState([
+    { id: 'stage', label: 'Stage changes', enabled: true },
+    { id: 'whale', label: 'Whale volume > $250K', enabled: true },
+    { id: 'score', label: 'Momentum score > 70', enabled: true },
+    { id: 'burst', label: 'New token burst', enabled: true },
+  ]);
 
   const scoreHistoryRef = useRef({});
   const wsRef = useRef(null);
@@ -88,8 +129,22 @@ export default function App() {
   }, [paused, queuedEvents]);
 
   const apiFetch = useCallback(async (path) => {
+    const key = restKeyForPath(path);
     const fetcher = createApiFetcher(apiKey);
-    return fetcher(path);
+    const result = await fetcher(path);
+    setDataHealth((prev) => ({
+      ...prev,
+      rest: {
+        ...prev.rest,
+        [key]: {
+          ...(prev.rest[key] || {}),
+          status: result ? 'ok' : 'limited',
+          updatedAt: Date.now(),
+          count: (prev.rest[key]?.count || 0) + 1,
+        },
+      },
+    }));
+    return result;
   }, [apiKey]);
 
   const markStep = useCallback((index) => {
@@ -112,6 +167,10 @@ export default function App() {
       .forEach((token) => {
         wsRef.current.subscribe(`stats-${token.address}`, { type: 'SUBSCRIBE_TOKEN_STATS', data: { address: token.address } });
       });
+    setDataHealth((prev) => ({
+      ...prev,
+      ws: Object.fromEntries(Object.entries(prev.ws).map(([key, item]) => [key, { ...item, status: 'live', updatedAt: Date.now() }])),
+    }));
   }, []);
 
   const scheduleRecompute = useCallback(() => {
@@ -179,6 +238,16 @@ export default function App() {
     const type = message?.type;
     const data = message?.data || message;
     if (!type) return;
+    const streamKey = wsKeyForType(type);
+    if (streamKey) {
+      setDataHealth((prev) => ({
+        ...prev,
+        ws: {
+          ...prev.ws,
+          [streamKey]: { ...(prev.ws[streamKey] || {}), status: 'live', updatedAt: Date.now(), count: (prev.ws[streamKey]?.count || 0) + 1 },
+        },
+      }));
+    }
 
     if (type === 'TOKEN_NEW_LISTING_DATA') {
       const token = {
@@ -301,6 +370,7 @@ export default function App() {
     if (!tokenList.length) {
       working = createMockNarratives();
       usingFallbackSeed = true;
+      setDataHealth((prev) => ({ ...prev, rest: { ...prev.rest, tokenlist: { ...prev.rest.tokenlist, status: 'fallback', updatedAt: Date.now() } } }));
     }
     const addresses = tokenList.map((t) => t.address).filter(Boolean).slice(0, 50);
 
@@ -548,6 +618,18 @@ export default function App() {
       )
     : eventFeed;
 
+  const alerts = useMemo(() => {
+    const enabled = Object.fromEntries(alertRules.map((rule) => [rule.id, rule.enabled]));
+    const out = [];
+    if (enabled.stage) eventFeed.filter((event) => event.type === 'STAGE_CHANGE').slice(0, 4).forEach((event) => out.push({ id: `stage-${event.id}`, title: 'Stage trigger', body: event.main, ts: event.ts }));
+    if (enabled.whale) eventFeed.filter((event) => event.type === 'WHALE_ENTRY').slice(0, 4).forEach((event) => out.push({ id: `whale-${event.id}`, title: 'Whale trigger', body: event.main, ts: event.ts }));
+    Object.values(narratives).forEach((narrative) => {
+      if (enabled.score && narrative.momentumScore >= 70) out.push({ id: `score-${narrative.id}`, title: 'Momentum trigger', body: `${narrative.name} score crossed ${narrative.momentumScore}`, ts: narrative.lastUpdated });
+      if (enabled.burst && narrative.newTokensLastHour >= 3) out.push({ id: `burst-${narrative.id}`, title: 'Launch burst', body: `${narrative.newTokensLastHour} new ${narrative.name} tokens in 1h`, ts: narrative.lastUpdated });
+    });
+    return out.sort((a, b) => b.ts - a.ts).slice(0, 10);
+  }, [alertRules, eventFeed, narratives]);
+
   if (isInitializing) {
     return <LoadingScreen initSteps={initSteps} initProgress={initProgress} />;
   }
@@ -598,6 +680,12 @@ export default function App() {
                 ◉ Bubbles
               </button>
               <button
+                className={`ctrl-btn ${activeView === 'rotation' ? 'active' : ''}`}
+                onClick={() => setActiveView('rotation')}
+              >
+                ↔ Rotation
+              </button>
+              <button
                 className={`ctrl-btn ${activeView === 'list' ? 'active' : ''}`}
                 onClick={() => setActiveView('list')}
               >
@@ -630,6 +718,8 @@ export default function App() {
               setSelectedNarrative={setSelectedNarrative}
               setHoveredBubble={setHoveredBubble}
             />
+          ) : activeView === 'rotation' ? (
+            <RotationView narratives={narratives} events={eventFeed} onSelect={setSelectedNarrative} />
           ) : (
             <NarrativeTable narratives={sortedNarratives} onSelect={setSelectedNarrative} />
           )}
@@ -643,6 +733,8 @@ export default function App() {
               {queuedEvents.length ? <span className="queued">+{queuedEvents.length}</span> : null}
             </button>
           </div>
+          <DataHealth health={dataHealth} />
+          <AlertsPanel rules={alertRules} setRules={setAlertRules} alerts={alerts} />
           <EventFeed events={eventFeed} />
         </aside>
       </div>

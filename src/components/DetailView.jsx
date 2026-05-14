@@ -3,6 +3,8 @@ import { formatVolume, formatPrice, formatHolders, formatTime, shortAddress, see
 import Sparkline from './Sparkline';
 import Risk from './Risk';
 import EventFeed from './EventFeed';
+import EvidencePanel from './EvidencePanel';
+import { exportAlphaCard } from '../utils/exportAlphaCard';
 
 export default function DetailView({
   narrative,
@@ -27,6 +29,7 @@ export default function DetailView({
           {narrative.emoji} {narrative.name}
         </div>
         <div className="mono muted">{narrative.momentumScore} &middot; {narrative.stage}</div>
+        <button className="copy-btn detail-action" onClick={() => exportAlphaCard(narrative)}>Export Alpha Card</button>
       </div>
 
       <div className="tabs">
@@ -43,6 +46,13 @@ export default function DetailView({
           onClick={() => setActiveTab('smartmoney')}
         >
           SMART MONEY
+        </button>
+        <button
+          className={`tab ${activeTab === 'evidence' ? 'active' : ''}`}
+          style={{ borderBottomColor: activeTab === 'evidence' ? narrative.color : 'transparent' }}
+          onClick={() => setActiveTab('evidence')}
+        >
+          EVIDENCE
         </button>
         <button
           className={`tab ${activeTab === 'feed' ? 'active' : ''}`}
@@ -144,6 +154,8 @@ export default function DetailView({
           ))}
         </div>
       )}
+
+      {activeTab === 'evidence' && <EvidencePanel narrative={narrative} />}
 
       {activeTab === 'feed' && <EventFeed events={events} />}
     </>
