@@ -613,12 +613,13 @@ function Zeitgeist() {
       upsertToken('MEME', token);
     }
     if (type === 'NEW_PAIR_DATA') addEvent({ type: 'NEW_PAIR', narrativeId: 'MEME', title: 'LIQUIDITY', main: `◎ New Solana pair confirmed`, sub: `${formatVolume(data.liquidity || 0)} liquidity · ${shortAddress(data.baseAddress || data.address)}` });
-  }, [addEvent, scheduleRecompute]);
+  }, [addEvent, apiKey, apiFetch, scheduleRecompute]);
 
   async function enrichQueuedTokens(flushAll = false) {
+    if (!apiKey) return;
     const batchSize = flushAll ? enrichmentQueueRef.current.length : 10;
     const batch = enrichmentQueueRef.current.splice(0, batchSize);
-    if (!batch.length || !apiKey) return;
+    if (!batch.length) return;
     const list = batch.map((t) => t.address).join(',');
     const meta = await apiFetch(`/defi/v3/token/meta-data/multiple?list_address=${list}`);
     const metaRows = normalizeTokenList(meta);
@@ -745,7 +746,10 @@ function Zeitgeist() {
 
     markStep(10);
     if (!wsRef.current) wsRef.current = new WebSocketManager({ getUrl: () => WS_URL(apiKey), onStatus: setWsStatus, onMessage: processWsMessage });
-    else wsRef.current.getUrl = () => WS_URL(apiKey);
+    else {
+      wsRef.current.getUrl = () => WS_URL(apiKey);
+      wsRef.current.onMessage = processWsMessage;
+    }
     wsRef.current.connect();
     subscribeBaseStreams();
 
@@ -756,8 +760,19 @@ function Zeitgeist() {
 
   useEffect(() => {
     if (!wsRef.current) wsRef.current = new WebSocketManager({ getUrl: () => WS_URL(apiKey), onStatus: setWsStatus, onMessage: processWsMessage });
-    return () => wsRef.current?.disconnect();
+    else {
+      wsRef.current.getUrl = () => WS_URL(apiKey);
+      wsRef.current.onMessage = processWsMessage;
+    }
   }, [apiKey, processWsMessage]);
+
+  useEffect(() => {
+    return () => wsRef.current?.disconnect();
+  }, []);
+
+  useEffect(() => {
+    return () => clearTimeout(enrichmentFlushTimerRef.current);
+  }, []);
 
   useEffect(() => {
     const ro = new ResizeObserver(([entry]) => {
