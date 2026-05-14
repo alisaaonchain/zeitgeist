@@ -100,7 +100,11 @@ export default function App() {
   const subscribeBaseStreams = useCallback(() => {
     if (!wsRef.current) return;
     wsRef.current.subscribe('new-listing', { type: 'SUBSCRIBE_TOKEN_NEW_LISTING', data: { chain: 'solana' } });
-    wsRef.current.subscribe('large-trades', { type: 'SUBSCRIBE_LARGE_TRADE_TXS', data: { chain: 'solana', minVolumeUsd: 50000 } });
+    wsRef.current.subscribe('large-trades', {
+      type: 'SUBSCRIBE_LARGE_TRADE_TXS',
+      min_volume: 50000,
+      data: { chain: 'solana', minVolumeUsd: 50000, min_volume: 50000 },
+    });
     wsRef.current.subscribe('meme', { type: 'SUBSCRIBE_MEME', data: { chain: 'solana' } });
     wsRef.current.subscribe('new-pair', { type: 'SUBSCRIBE_NEW_PAIR', data: { chain: 'solana' } });
     Object.values(narrativesRef.current)
@@ -287,18 +291,23 @@ export default function App() {
     setIsInitializing(true);
     setInitStepsState(INIT_STEPS.map((label) => ({ label, done: false })));
     setInitProgress(0);
-    const working = buildEmptyNarratives();
+    let working = buildEmptyNarratives();
+    let usingFallbackSeed = false;
 
     markStep(0);
     const tokenList = normalizeTokenList(
       await apiFetch('/defi/tokenlist?sort_by=v24hUSD&sort_type=desc&offset=0&limit=50&min_liquidity=50000')
     );
+    if (!tokenList.length) {
+      working = createMockNarratives();
+      usingFallbackSeed = true;
+    }
     const addresses = tokenList.map((t) => t.address).filter(Boolean).slice(0, 50);
 
     markStep(1);
-    const metaRows = normalizeTokenList(
-      await apiFetch(`/defi/v3/token/meta-data/multiple?list_address=${addresses.join(',')}`)
-    );
+    const metaRows = addresses.length
+      ? normalizeTokenList(await apiFetch(`/defi/v3/token/meta-data/multiple?list_address=${addresses.join(',')}`))
+      : [];
     const enriched = tokenList.map((t) => ({ ...t, ...(metaRows.find((m) => m.address === t.address) || {}) }));
 
     markStep(2);
@@ -325,9 +334,10 @@ export default function App() {
     });
 
     markStep(3);
-    normalizeTokenList(
-      await apiFetch('/defi/v3/token/meme/list?sort_by=v24hUSD&sort_type=desc&offset=0&limit=20')
-    ).forEach((token) => {
+    const memeTokens = usingFallbackSeed
+      ? []
+      : normalizeTokenList(await apiFetch('/defi/v3/token/meme/list?sort_by=v24hUSD&sort_type=desc&offset=0&limit=20'));
+    memeTokens.forEach((token) => {
       if (!working.MEME.tokens.some((t) => t.address === token.address)) {
         working.MEME.tokens.push({
           address: token.address,
@@ -351,44 +361,50 @@ export default function App() {
     });
 
     markStep(4);
-    for (const n of Object.values(working)) {
-      for (const token of n.tokens.slice(0, 5)) {
-        const trade = await apiFetch(`/defi/v3/token/trade-data/single?address=${token.address}`);
-        const d = trade?.data || trade || {};
-        token.buyVolume = Number(d.buyVolume24h || d.buyVolume || d.volumeBuy24h || 0);
-        token.sellVolume = Number(d.sellVolume24h || d.sellVolume || d.volumeSell24h || 0);
-        token.buyPressure = token.buyVolume / (token.buyVolume + token.sellVolume + 1);
+    if (!usingFallbackSeed) {
+      for (const n of Object.values(working)) {
+        for (const token of n.tokens.slice(0, 5)) {
+          const trade = await apiFetch(`/defi/v3/token/trade-data/single?address=${token.address}`);
+          const d = trade?.data || trade || {};
+          token.buyVolume = Number(d.buyVolume24h || d.buyVolume || d.volumeBuy24h || 0);
+          token.sellVolume = Number(d.sellVolume24h || d.sellVolume || d.volumeSell24h || 0);
+          token.buyPressure = token.buyVolume / (token.buyVolume + token.sellVolume + 1);
+        }
       }
     }
 
     markStep(5);
-    for (const n of Object.values(working)) {
-      for (const token of n.tokens.slice(0, 5)) {
-        const sec = await apiFetch(`/defi/token_security?address=${token.address}`);
-        const s = sec?.data || sec || {};
-        if (s.honeypotRisk === true || s.honeypot === true) token.hidden = true;
-        const risky = s.freezeAuthority || s.mintAuthority || Number(s.topHolderConcentration || 0) > 0.35;
-        token.securityRisk = risky ? 'HIGH' : Number(s.topHolderConcentration || 0) > 0.2 ? 'MEDIUM' : 'LOW';
+    if (!usingFallbackSeed) {
+      for (const n of Object.values(working)) {
+        for (const token of n.tokens.slice(0, 5)) {
+          const sec = await apiFetch(`/defi/token_security?address=${token.address}`);
+          const s = sec?.data || sec || {};
+          if (s.honeypotRisk === true || s.honeypot === true) token.hidden = true;
+          const risky = s.freezeAuthority || s.mintAuthority || Number(s.topHolderConcentration || 0) > 0.35;
+          token.securityRisk = risky ? 'HIGH' : Number(s.topHolderConcentration || 0) > 0.2 ? 'MEDIUM' : 'LOW';
+        }
+        n.tokens = n.tokens.filter((t) => !t.hidden);
       }
-      n.tokens = n.tokens.filter((t) => !t.hidden);
     }
 
     markStep(6);
-    const now = Math.floor(Date.now() / 1000);
-    for (const n of Object.values(working)) {
-      const token = n.tokens[0];
-      if (!token) continue;
-      const hist = await apiFetch(
-        `/defi/history_price?address=${token.address}&address_type=token&type=30m&time_from=${now - 21600}&time_to=${now}`
-      );
-      const rows = normalizeTokenList(hist);
-      token.sparkline = rows.map((r) => Number(r.c || r.close || r.value || 0)).filter(Boolean);
+    if (!usingFallbackSeed) {
+      const now = Math.floor(Date.now() / 1000);
+      for (const n of Object.values(working)) {
+        const token = n.tokens[0];
+        if (!token) continue;
+        const hist = await apiFetch(
+          `/defi/history_price?address=${token.address}&address_type=token&type=30m&time_from=${now - 21600}&time_to=${now}`
+        );
+        const rows = normalizeTokenList(hist);
+        token.sparkline = rows.map((r) => Number(r.c || r.close || r.value || 0)).filter(Boolean);
+      }
     }
 
     markStep(7);
-    const gainers = normalizeTokenList(
-      await apiFetch('/trader/gainers-losers?type=24h&sort_type=desc&offset=0&limit=20')
-    );
+    const gainers = usingFallbackSeed
+      ? []
+      : normalizeTokenList(await apiFetch('/trader/gainers-losers?type=24h&sort_type=desc&offset=0&limit=20'));
     const wallets = gainers.map((w, i) => ({
       wallet: w.wallet || w.address || w.owner || seededNumber(`live-wallet-${i}`) + '',
       realizedPnl: Number(w.realizedPnl || w.pnl || 0),
@@ -411,6 +427,10 @@ export default function App() {
 
     markStep(9);
     Object.entries(working).forEach(([id, n]) => {
+      if (usingFallbackSeed) {
+        n.tokens.forEach((t) => tokenCacheRef.current.set(t.address, t));
+        return;
+      }
       const recomputed = recomputeNarrative(n, scoreHistoryRef);
       working[id] = { ...recomputed, stage: recomputed.tokens.length ? recomputed.stage : 'DEAD' };
       recomputed.tokens.forEach((t) => tokenCacheRef.current.set(t.address, t));
