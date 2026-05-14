@@ -544,8 +544,12 @@ export default function App() {
           apiKey
             ? initializeLive
             : () => {
+                wsRef.current?.disconnect();
+                enrichmentQueueRef.current = [];
+                clearTimeout(enrichmentFlushTimerRef.current);
                 setNarratives(createMockNarratives());
                 setEventFeed(createMockEvents());
+                setSmartWallets(createMockWallets());
               }
         }
       />

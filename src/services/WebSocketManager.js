@@ -81,7 +81,7 @@ export class WebSocketManager {
 
   subscribe(key, message) {
     this.subscriptions.set(key, message);
-    this.send(message);
+    if (this.connected && this.ws?.readyState === WebSocket.OPEN) this.send(message);
   }
 
   unsubscribe(key) {
