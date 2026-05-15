@@ -102,49 +102,35 @@ Build:
 npm run build
 ```
 
-## Secure premium-key deployment: Vercel + Railway/Render
+## Vercel-only deployment
 
-Do **not** put a premium Birdeye key into the Vite frontend. Browser bundles are public. Zeitgeist supports a two-service deployment so the key stays server-side:
+Do **not** put a premium Birdeye REST key into the Vite frontend. Browser bundles are public. Zeitgeist runs on Vercel as one project:
 
 ```text
-Vercel static frontend ── HTTPS/WS ── Railway/Render data gateway ── Birdeye REST + WebSocket
+Vercel static frontend ── HTTPS ── Vercel /api/birdeye ── Birdeye REST
+                       └─ WSS directly to Birdeye with a user-entered browser key
 ```
 
-### 1. Deploy the data gateway to Railway or Render
+### Deploy to Vercel
 
-Create a Node service from this repo and use:
-
-```bash
-npm install
-npm run gateway:start
-```
-
-Set environment variables on the gateway service:
-
-| Variable | Value |
-| --- | --- |
-| `BIRDEYE_API_KEY` | Your premium Birdeye key |
-| `ALLOWED_ORIGIN` | Your Vercel app URL, or `*` while testing |
-| `PORT` | Provided automatically by Railway/Render |
-
-Gateway endpoints:
-
-- `GET /health` — confirms the key is configured.
-- `GET /api/birdeye?path=/defi/tokenlist?...` — REST proxy.
-- `WS /ws` — WebSocket relay to Birdeye with the premium key.
-
-### 2. Deploy the frontend to Vercel
-
-Import the repo into Vercel and set:
+Import the repo into Vercel and use:
 
 | Setting | Value |
 | --- | --- |
 | Framework | Vite |
 | Build command | `npm run build` |
 | Output directory | `dist` |
-| Environment variable | `VITE_DATA_GATEWAY_URL=https://your-gateway.up.railway.app` |
+| Server environment variable | `BIRDEYE_API_KEY=your_server_side_birdeye_key` |
 
-When `VITE_DATA_GATEWAY_URL` is present, Zeitgeist hides the API-key input and shows `PREMIUM KEY SERVER-SIDE`. REST calls and WebSockets route through the gateway, so the premium key is never exposed to the browser.
+No Railway, Render, or separate gateway is required. Production builds default REST calls to same-origin `/api/birdeye`, so `VITE_DATA_GATEWAY_URL` is no longer needed.
+
+Serverless REST endpoint:
+
+- `GET /api/birdeye?path=/defi/tokenlist?...` — REST proxy.
+
+When deployed on Vercel, REST calls use `BIRDEYE_API_KEY` server-side. WebSocket streams cannot be safely proxied by Vercel serverless functions, so the header keeps a `WS API KEY` input and opens the Birdeye WebSocket directly from the browser.
+
+For local frontend-only development, `npm run dev` still works in mock mode or with a user-entered key. To test the serverless REST proxy locally, run through Vercel's local dev server with `BIRDEYE_API_KEY` configured.
 
 ## Live API behavior
 
