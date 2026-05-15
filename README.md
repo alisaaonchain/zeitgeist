@@ -121,6 +121,7 @@ Import the repo into Vercel and use:
 | Build command | `npm run build` |
 | Output directory | `dist` |
 | Server environment variable | `BIRDEYE_API_KEY=your_server_side_birdeye_key` |
+| Optional server environment variable | `ALLOWED_ORIGIN=https://your-custom-domain.com` |
 
 No Railway, Render, or separate gateway is required. Production builds default REST calls to same-origin `/api/birdeye`, so `VITE_DATA_GATEWAY_URL` is no longer needed.
 
@@ -128,7 +129,7 @@ Serverless REST endpoint:
 
 - `GET /api/birdeye?path=/defi/tokenlist?...` — REST proxy.
 
-When deployed on Vercel, REST calls use `BIRDEYE_API_KEY` server-side. WebSocket streams cannot be safely proxied by Vercel serverless functions, so the header keeps a `WS API KEY` input and opens the Birdeye WebSocket directly from the browser.
+When deployed on Vercel, REST calls use `BIRDEYE_API_KEY` server-side. The proxy accepts same-origin Vercel requests automatically; set `ALLOWED_ORIGIN` only for custom domains or other trusted frontend origins. WebSocket streams cannot be safely proxied by Vercel serverless functions, so the header keeps a `WS API KEY` input and opens the Birdeye WebSocket directly from the browser.
 
 For local frontend-only development, `npm run dev` still works in mock mode or with a user-entered key. To test the serverless REST proxy locally, run through Vercel's local dev server with `BIRDEYE_API_KEY` configured.
 
