@@ -275,7 +275,7 @@ button { font-family: inherit; }
   height: 18px;
 }
 
-.bubble-wrap { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.bubble-wrap { position: relative; flex: 1; min-height: 420px; overflow: hidden; }
 
 .bubble-tooltip {
   position: fixed;

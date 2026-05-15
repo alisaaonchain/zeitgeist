@@ -538,13 +538,19 @@ export default function App() {
   useEffect(() => () => clearTimeout(enrichmentFlushTimerRef.current), []);
 
   useEffect(() => {
-    const ro = new ResizeObserver(([entry]) => {
-      const rect = entry.contentRect;
-      setContainerSize({ width: rect.width, height: rect.height });
-    });
-    if (bubbleContainerRef.current) ro.observe(bubbleContainerRef.current);
+    const node = bubbleContainerRef.current;
+    if (!node || selectedNarrative || activeView !== 'bubbles') return undefined;
+    const updateSize = (rect) => {
+      const width = Math.round(rect.width);
+      const height = Math.round(rect.height);
+      if (width < 240 || height < 240) return;
+      setContainerSize((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
+    };
+    updateSize(node.getBoundingClientRect());
+    const ro = new ResizeObserver(([entry]) => updateSize(entry.contentRect));
+    ro.observe(node);
     return () => ro.disconnect();
-  }, []);
+  }, [activeView, selectedNarrative]);
 
   const refresh = useCallback(() => {
     setNarratives((prev) =>
