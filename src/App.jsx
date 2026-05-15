@@ -12,8 +12,8 @@ import {
   recomputeNarrative,
   computeBubbleLayout,
 } from './utils';
-import { WebSocketManager, WS_URL } from './services/WebSocketManager';
-import { createApiFetcher } from './services/birdeyeApi';
+import { WebSocketManager, getSocketUrl } from './services/WebSocketManager';
+import { createApiFetcher, hasDataGateway } from './services/birdeyeApi';
 import {
   createMockNarratives,
   createMockWallets,
@@ -33,6 +33,7 @@ import AlertsPanel from './components/AlertsPanel';
 
 const REST_HEALTH_KEYS = ['tokenlist', 'metadata', 'trade-data', 'security', 'gainers-losers', 'meme-list', 'wallet-pnl', 'price-history'];
 const WS_HEALTH_KEYS = ['new-listing', 'large-trades', 'token-stats', 'meme', 'new-pair'];
+const PREMIUM_GATEWAY_ENABLED = hasDataGateway();
 
 function createInitialHealth() {
   return {
@@ -356,7 +357,7 @@ export default function App() {
   }, [addEvent, enrichQueuedTokens, scheduleRecompute, upsertToken]);
 
   const initializeLive = useCallback(async () => {
-    if (!apiKey.trim()) return;
+    if (!apiKey.trim() && !PREMIUM_GATEWAY_ENABLED) return;
     setIsInitializing(true);
     setInitStepsState(INIT_STEPS.map((label) => ({ label, done: false })));
     setInitProgress(0);
@@ -511,9 +512,9 @@ export default function App() {
 
     markStep(10);
     if (!wsRef.current)
-      wsRef.current = new WebSocketManager({ getUrl: () => WS_URL(apiKey), onStatus: setWsStatus, onMessage: processWsMessage });
+      wsRef.current = new WebSocketManager({ getUrl: () => getSocketUrl(apiKey), onStatus: setWsStatus, onMessage: processWsMessage });
     else {
-      wsRef.current.getUrl = () => WS_URL(apiKey);
+      wsRef.current.getUrl = () => getSocketUrl(apiKey);
       wsRef.current.onMessage = processWsMessage;
     }
     wsRef.current.connect();
@@ -526,9 +527,9 @@ export default function App() {
 
   useEffect(() => {
     if (!wsRef.current)
-      wsRef.current = new WebSocketManager({ getUrl: () => WS_URL(apiKey), onStatus: setWsStatus, onMessage: processWsMessage });
+      wsRef.current = new WebSocketManager({ getUrl: () => getSocketUrl(apiKey), onStatus: setWsStatus, onMessage: processWsMessage });
     else {
-      wsRef.current.getUrl = () => WS_URL(apiKey);
+      wsRef.current.getUrl = () => getSocketUrl(apiKey);
       wsRef.current.onMessage = processWsMessage;
     }
   }, [apiKey, processWsMessage]);
@@ -537,13 +538,19 @@ export default function App() {
   useEffect(() => () => clearTimeout(enrichmentFlushTimerRef.current), []);
 
   useEffect(() => {
-    const ro = new ResizeObserver(([entry]) => {
-      const rect = entry.contentRect;
-      setContainerSize({ width: rect.width, height: rect.height });
-    });
-    if (bubbleContainerRef.current) ro.observe(bubbleContainerRef.current);
+    const node = bubbleContainerRef.current;
+    if (!node || selectedNarrative || activeView !== 'bubbles') return undefined;
+    const updateSize = (rect) => {
+      const width = Math.round(rect.width);
+      const height = Math.round(rect.height);
+      if (width < 240 || height < 240) return;
+      setContainerSize((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
+    };
+    updateSize(node.getBoundingClientRect());
+    const ro = new ResizeObserver(([entry]) => updateSize(entry.contentRect));
+    ro.observe(node);
     return () => ro.disconnect();
-  }, []);
+  }, [activeView, selectedNarrative]);
 
   const refresh = useCallback(() => {
     setNarratives((prev) =>
@@ -641,9 +648,10 @@ export default function App() {
         totalStats={totalStats}
         apiKey={apiKey}
         setApiKey={setApiKey}
+        premiumGatewayEnabled={PREMIUM_GATEWAY_ENABLED}
         apiInputRef={apiInputRef}
         onConnect={
-          apiKey
+          apiKey || PREMIUM_GATEWAY_ENABLED
             ? initializeLive
             : () => {
                 wsRef.current?.disconnect();
@@ -656,9 +664,14 @@ export default function App() {
         }
       />
 
-      {!apiKey && (
+      {!apiKey && !PREMIUM_GATEWAY_ENABLED && (
         <div className="demo-banner">
           DEMO MODE &mdash; Enter your Birdeye API key to activate live WebSocket streams and real-time data
+        </div>
+      )}
+      {PREMIUM_GATEWAY_ENABLED && !apiKey && (
+        <div className="demo-banner">
+          PREMIUM GATEWAY MODE &mdash; Birdeye key is stored server-side; browser receives only proxied data
         </div>
       )}
 

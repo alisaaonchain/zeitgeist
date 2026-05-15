@@ -13,7 +13,7 @@ export default function BubbleMap({
 }) {
   return (
     <div className="bubble-wrap" ref={bubbleContainerRef}>
-      <svg width={containerSize.width} height={containerSize.height}>
+      <svg width="100%" height="100%" viewBox={`0 0 ${containerSize.width} ${containerSize.height}`} preserveAspectRatio="xMidYMid meet">
         <defs>
           {bubbles.map((b) => (
             <radialGradient key={b.id} id={`grad-${b.id}`} cx="40%" cy="35%">

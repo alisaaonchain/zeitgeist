@@ -117,6 +117,19 @@ body {
 }
 .api-input:focus { border-color: var(--border-bright); }
 
+.gateway-pill {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  border: 1px solid rgba(16, 185, 129, .25);
+  border-radius: var(--radius-sm);
+  background: rgba(16, 185, 129, .08);
+  color: var(--green);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 0 10px;
+}
+
 button { font-family: inherit; }
 
 .connect-btn, .ctrl-btn, .pause-btn, .copy-btn {
@@ -262,7 +275,7 @@ button { font-family: inherit; }
   height: 18px;
 }
 
-.bubble-wrap { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.bubble-wrap { position: relative; flex: 1; min-height: 420px; overflow: hidden; }
 
 .bubble-tooltip {
   position: fixed;

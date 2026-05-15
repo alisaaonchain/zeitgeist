@@ -102,6 +102,50 @@ Build:
 npm run build
 ```
 
+## Secure premium-key deployment: Vercel + Railway/Render
+
+Do **not** put a premium Birdeye key into the Vite frontend. Browser bundles are public. Zeitgeist supports a two-service deployment so the key stays server-side:
+
+```text
+Vercel static frontend ── HTTPS/WS ── Railway/Render data gateway ── Birdeye REST + WebSocket
+```
+
+### 1. Deploy the data gateway to Railway or Render
+
+Create a Node service from this repo and use:
+
+```bash
+npm install
+npm run gateway:start
+```
+
+Set environment variables on the gateway service:
+
+| Variable | Value |
+| --- | --- |
+| `BIRDEYE_API_KEY` | Your premium Birdeye key |
+| `ALLOWED_ORIGIN` | Your Vercel app URL, or `*` while testing |
+| `PORT` | Provided automatically by Railway/Render |
+
+Gateway endpoints:
+
+- `GET /health` — confirms the key is configured.
+- `GET /api/birdeye?path=/defi/tokenlist?...` — REST proxy.
+- `WS /ws` — WebSocket relay to Birdeye with the premium key.
+
+### 2. Deploy the frontend to Vercel
+
+Import the repo into Vercel and set:
+
+| Setting | Value |
+| --- | --- |
+| Framework | Vite |
+| Build command | `npm run build` |
+| Output directory | `dist` |
+| Environment variable | `VITE_DATA_GATEWAY_URL=https://your-gateway.up.railway.app` |
+
+When `VITE_DATA_GATEWAY_URL` is present, Zeitgeist hides the API-key input and shows `PREMIUM KEY SERVER-SIDE`. REST calls and WebSockets route through the gateway, so the premium key is never exposed to the browser.
+
 ## Live API behavior
 
 The app is designed to degrade gracefully under rate limits. During live testing, Birdeye REST seed calls may return `429`; when that happens, Zeitgeist keeps the full mock baseline visible while live WebSocket streams continue to update the terminal. The Data Health panel surfaces this as `FALLBACK` instead of silently blanking the UI.
