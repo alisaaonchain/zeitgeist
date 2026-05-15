@@ -4,7 +4,7 @@
 
 Zeitgeist was built for the Birdeye Data Build-in-Public Competition. It uses Birdeye REST and WebSocket data to cluster tokens into market narratives, score lifecycle momentum, visualize capital rotation, and generate shareable alpha cards for public distribution.
 
-## Problem
+## Problemm
 
 Solana cycles are usually narrative-led: AI agents, meme supercycles, gaming seasons, DePIN, political coins, animal coins, and other themes. Those narratives form on-chain first: new tokens launch in clusters, liquidity appears, whales enter, buy pressure rises, and holder counts expand before Twitter notices.
 
