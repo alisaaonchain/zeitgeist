@@ -1,6 +1,17 @@
 export const WS_URL = (apiKey) =>
   `wss://public-api.birdeye.so/socket/solana?x-api-key=${encodeURIComponent(apiKey)}`;
 
+const DATA_GATEWAY_URL = import.meta.env.VITE_DATA_GATEWAY_URL?.replace(/\/$/, '');
+
+export function getSocketUrl(apiKey) {
+  if (!DATA_GATEWAY_URL) return WS_URL(apiKey);
+  const gateway = new URL(DATA_GATEWAY_URL);
+  gateway.protocol = gateway.protocol === 'https:' ? 'wss:' : 'ws:';
+  gateway.pathname = '/ws';
+  gateway.search = '';
+  return gateway.toString();
+}
+
 export class WebSocketManager {
   constructor({ getUrl, onStatus, onMessage }) {
     this.getUrl = getUrl;

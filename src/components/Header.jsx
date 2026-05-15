@@ -6,6 +6,7 @@ export default function Header({
   totalStats,
   apiKey,
   setApiKey,
+  premiumGatewayEnabled,
   apiInputRef,
   onConnect,
 }) {
@@ -21,14 +22,18 @@ export default function Header({
         5 streams &middot; {totalStats.narratives} narratives &middot; {formatVolume(totalStats.volume)}
       </div>
       <div className="spacer" />
-      <input
-        ref={apiInputRef}
-        className="api-input"
-        type="password"
-        value={apiKey}
-        onChange={(e) => setApiKey(e.target.value)}
-        placeholder="API KEY \u2022\u2022\u2022\u2022"
-      />
+      {premiumGatewayEnabled ? (
+        <div className="gateway-pill">PREMIUM KEY SERVER-SIDE</div>
+      ) : (
+        <input
+          ref={apiInputRef}
+          className="api-input"
+          type="password"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          placeholder="API KEY ••••"
+        />
+      )}
       <button className="connect-btn" onClick={onConnect}>
         Connect
       </button>
