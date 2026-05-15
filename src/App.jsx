@@ -33,7 +33,7 @@ import AlertsPanel from './components/AlertsPanel';
 
 const REST_HEALTH_KEYS = ['tokenlist', 'metadata', 'trade-data', 'security', 'gainers-losers', 'meme-list', 'wallet-pnl', 'price-history'];
 const WS_HEALTH_KEYS = ['new-listing', 'large-trades', 'token-stats', 'meme', 'new-pair'];
-const PREMIUM_GATEWAY_ENABLED = hasDataGateway();
+const SERVER_REST_PROXY_ENABLED = hasDataGateway();
 
 function createInitialHealth() {
   return {
@@ -357,7 +357,7 @@ export default function App() {
   }, [addEvent, enrichQueuedTokens, scheduleRecompute, upsertToken]);
 
   const initializeLive = useCallback(async () => {
-    if (!apiKey.trim() && !PREMIUM_GATEWAY_ENABLED) return;
+    if (!apiKey.trim() && !SERVER_REST_PROXY_ENABLED) return;
     setIsInitializing(true);
     setInitStepsState(INIT_STEPS.map((label) => ({ label, done: false })));
     setInitProgress(0);
@@ -511,14 +511,19 @@ export default function App() {
     setEventFeed(createMockEvents().slice(0, 10));
 
     markStep(10);
-    if (!wsRef.current)
-      wsRef.current = new WebSocketManager({ getUrl: () => getSocketUrl(apiKey), onStatus: setWsStatus, onMessage: processWsMessage });
-    else {
-      wsRef.current.getUrl = () => getSocketUrl(apiKey);
-      wsRef.current.onMessage = processWsMessage;
+    if (apiKey.trim()) {
+      if (!wsRef.current)
+        wsRef.current = new WebSocketManager({ getUrl: () => getSocketUrl(apiKey), onStatus: setWsStatus, onMessage: processWsMessage });
+      else {
+        wsRef.current.getUrl = () => getSocketUrl(apiKey);
+        wsRef.current.onMessage = processWsMessage;
+      }
+      wsRef.current.connect();
+      subscribeBaseStreams();
+    } else {
+      wsRef.current?.disconnect();
+      setWsStatus('disconnected');
     }
-    wsRef.current.connect();
-    subscribeBaseStreams();
 
     markStep(11);
     await sleep(300);
@@ -557,7 +562,7 @@ export default function App() {
       Object.fromEntries(Object.entries(prev).map(([id, n]) => [id, recomputeNarrative(n, scoreHistoryRef)]))
     );
     setLastRefresh(Date.now());
-    if (apiKey) initializeLive();
+    if (apiKey || SERVER_REST_PROXY_ENABLED) initializeLive();
   }, [apiKey, initializeLive]);
 
   useEffect(() => {
@@ -648,10 +653,10 @@ export default function App() {
         totalStats={totalStats}
         apiKey={apiKey}
         setApiKey={setApiKey}
-        premiumGatewayEnabled={PREMIUM_GATEWAY_ENABLED}
+        premiumGatewayEnabled={SERVER_REST_PROXY_ENABLED}
         apiInputRef={apiInputRef}
         onConnect={
-          apiKey || PREMIUM_GATEWAY_ENABLED
+          apiKey || SERVER_REST_PROXY_ENABLED
             ? initializeLive
             : () => {
                 wsRef.current?.disconnect();
@@ -664,14 +669,14 @@ export default function App() {
         }
       />
 
-      {!apiKey && !PREMIUM_GATEWAY_ENABLED && (
+      {!apiKey && !SERVER_REST_PROXY_ENABLED && (
         <div className="demo-banner">
           DEMO MODE &mdash; Enter your Birdeye API key to activate live WebSocket streams and real-time data
         </div>
       )}
-      {PREMIUM_GATEWAY_ENABLED && !apiKey && (
+      {SERVER_REST_PROXY_ENABLED && !apiKey && (
         <div className="demo-banner">
-          PREMIUM GATEWAY MODE &mdash; Birdeye key is stored server-side; browser receives only proxied data
+          VERCEL REST PROXY MODE &mdash; REST uses a server-side Birdeye key; enter a Birdeye key to activate live WebSocket streams
         </div>
       )}
 
